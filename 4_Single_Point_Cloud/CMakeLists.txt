@@ -6,7 +6,7 @@ include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS})
 link_directories(${OpenCV_LIBRARY_DIRS})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-add_executable(single_point_cloud vis.cc)
+add_executable(single_point_cloud single_point_cloud.cc)
 
 target_link_libraries(single_point_cloud
   ${OpenCV_LIBS})
