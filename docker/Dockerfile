@@ -39,6 +39,7 @@ RUN git clone https://github.com/Itseez/opencv.git && \
     cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=`pwd`/../install ..
 RUN cd opencv/build && make -j$(($(nproc)+1)) && make install
+RUN sudo cp /home/developer/opencv/install/lib/python2.7/dist-packages/cv2.so /usr/lib/python2.7/dist-packages
 
 # Set environment variables to use OpenCV
 ENV LD_LIBRARY_PATH /home/developer/opencv/install/lib:$LD_LIBRARY_PATH
@@ -46,7 +47,10 @@ ENV PATH /home/developer/opencv/install/bin:$PATH
 
 # Other things to install
 RUN sudo apt-get install -y feh \
-    wget
+    wget \
+    vim \
+    cmake-curses-gui \
+    tmux
 
 RUN git clone https://github.com/UFSEC/opencv_point_cloud_tutorial.git
 CMD /bin/bash
