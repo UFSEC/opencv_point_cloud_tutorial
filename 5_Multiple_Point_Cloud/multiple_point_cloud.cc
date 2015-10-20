@@ -45,6 +45,20 @@ struct KeypointFrame {
   std::vector<Eigen::Vector3f> points;
 };
 
+void ReprojectKeypoints(const std::vector<cv::KeyPoint>& keypoints,
+                        const cv::Mat& depth,
+                        const cv::Matx33d& intr,
+                        std::vector<Eigen::Vector3f>* points) {
+  for (std::size_t i = 0; i < keypoints.size(); ++i) {
+    float x, y, z;
+    cv::Point point = keypoints[i].pt;
+    z = depth.at<float>(point.y, point.x);
+    x = (point.x - intr(0,2)) / intr(0,0) * z;
+    y = (point.y - intr(1,2)) / intr(1,1) * z;
+    points->emplace_back(x, y, z);
+  }
+}
+
 void Gen3RandomIndices(const int max, int* a, int* b, int* c) {
        *a = rand() % max;
   do { *b = rand() % max; } while (*b == *a);
@@ -189,11 +203,17 @@ int main() {
 
   // Read in the images
   Mat img_color_1 = imread(color_1_path, CV_LOAD_IMAGE_COLOR);
-  Mat img_depth_1 = imread(depth_1_path, CV_LOAD_IMAGE_ANYDEPTH);
+  Mat img_depth_1_unscaled = imread(depth_1_path, CV_LOAD_IMAGE_ANYDEPTH);
   Mat img_color_2 = imread(color_2_path, CV_LOAD_IMAGE_COLOR);
-  Mat img_depth_2 = imread(depth_2_path, CV_LOAD_IMAGE_ANYDEPTH);
+  Mat img_depth_2_unscaled = imread(depth_2_path, CV_LOAD_IMAGE_ANYDEPTH);
 
-  // TODO: Get the feature points
+  Mat img_depth_1, img_depth_2, img_depth_1_float, img_depth_2_float;
+  img_depth_1_unscaled.convertTo(img_depth_1_float, CV_32F);
+  img_depth_2_unscaled.convertTo(img_depth_2_float, CV_32F);
+  img_depth_1_float.convertTo(img_depth_1, CV_32F, 1.0/10000.0);
+  img_depth_2_float.convertTo(img_depth_2, CV_32F, 1.0/10000.0);
+
+  // Get the feature points
   Ptr<ORB> orb = ORB::create();
   vector<KeyPoint> keypoints_1, keypoints_2;
   Mat descriptors_1, descriptors_2;
@@ -207,51 +227,83 @@ int main() {
   drawKeypoints(img_color_1, keypoints_1, img_keypoints1, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
   drawKeypoints(img_color_2, keypoints_2, img_keypoints2, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
 
+
+
+
+
   // Match up the Feature Points between images
   BFMatcher matcher(NORM_L2);
   std::vector<DMatch> matches;
   matcher.match(descriptors_1, descriptors_2, matches);
 
-  const int max_match_distance = 300;
+  const int max_match_distance = 10000;
   vector<DMatch> filtered_matches = filter_matches(matches, max_match_distance);
+  //vector<DMatch> depth_filtered_matches = filter_matches_by_depth(matches, keypoints_1, keypoints_2, img_depth_1, img_depth_2, max_match_distance);
   
-  Mat img_matches;
-  drawMatches(img_color_1, keypoints_1, img_color_2, keypoints_2, filtered_matches, img_matches);
-  imshow("matches", img_matches);
-
-  vector<Point> query_matched_keypoints_vec, train_matched_keypoints_vec;
+  vector<DMatch> depth_filtered_matches;
   for(auto match: filtered_matches) {
     Point query_keypoint = keypoints_1[match.queryIdx].pt;
     Point train_keypoint = keypoints_2[match.trainIdx].pt;
-    query_matched_keypoints_vec.push_back(query_keypoint);
-    train_matched_keypoints_vec.push_back(train_keypoint);
-    //cout << "Query Idx: " << match.queryIdx << ", Train Idx: " << match.trainIdx << endl;
-    //cout << "Query Pt: " << query_keypoint << ", Train Pt: " << train_keypoint << endl;
+
+    double depth_1_value = static_cast<double>(img_depth_1.at<float>(query_keypoint.y, query_keypoint.x));
+    double depth_2_value = static_cast<double>(img_depth_2.at<float>(train_keypoint.y, train_keypoint.x));
+    if(depth_1_value < 1e-6 || depth_2_value < 1e-6) continue;
+    cout << "After, Depth 1: " << depth_1_value << ", Depth 2: " << depth_2_value << endl;
+
+    depth_filtered_matches.push_back(match);
   }
-  Mat query_matched_keypoints(query_matched_keypoints_vec);
-  Mat train_matched_keypoints(train_matched_keypoints_vec);
+  
+  Mat img_matches;
+  drawMatches(img_color_1, keypoints_1, img_color_2, keypoints_2, depth_filtered_matches, img_matches);
+  imshow("matches", img_matches);
+  waitKey(0);
 
   // Select the matching keypoints and get their 3D representations
   Mat query_keypoints_3d, train_keypoints_3d;
-  rgbd::depthTo3dSparse(img_depth_1, camera_matrix, query_matched_keypoints, query_keypoints_3d);
-  rgbd::depthTo3dSparse(img_depth_2, camera_matrix, train_matched_keypoints, train_keypoints_3d);
 
   vector<Eigen::Vector3f> query_3d_eigen_points;
+  vector<Eigen::Vector3f> train_3d_eigen_points;
+  ReprojectKeypoints(keypoints_1, img_depth_1, camera_matrix, &query_3d_eigen_points);
+  ReprojectKeypoints(keypoints_2, img_depth_2, camera_matrix, &train_3d_eigen_points);
+
+  //rgbd::depthTo3dSparse(img_depth_1, camera_matrix, keypoints_1, query_keypoints_3d);
+  //rgbd::depthTo3dSparse(img_depth_2, camera_matrix, keypoints_2, train_keypoints_3d);
+
+  /*
+  cout << endl << endl << "Filtered!!!!" << endl << endl;
+
+  cout << "filtered_query_3d rows: " << filtered_query_3d.rows << endl;
+  cout << "filtered_train_3d rows: " << filtered_train_3d.rows << endl;
+  for(int i = 0; i < filtered_query_3d.rows; i++) {
+    Vec3d query_vec = filtered_query_3d.at<Vec3d>(i, 0);
+    Vec3d train_vec = filtered_train_3d.at<Vec3d>(i, 0);
+    cout << "Query Vec: " << query_vec << ", Train Vec: " << train_vec << endl;
+  }
+
   for(int i = 0; i < query_keypoints_3d.rows; i++) {
-    Eigen::Vector3f vec(query_keypoints_3d.at<double>(i, 0), query_keypoints_3d.at<double>(i, 1), query_keypoints_3d.at<double>(i, 2));
+    Eigen::Vector3f vec(query_keypoints_3d.at<float>(i, 0), query_keypoints_3d.at<float>(i, 1), query_keypoints_3d.at<float>(i, 2));
     query_3d_eigen_points.push_back(vec);    
   }
 
-  vector<Eigen::Vector3f> train_3d_eigen_points;
   for(int i = 0; i < train_keypoints_3d.rows; i++) {
-    Eigen::Vector3f vec(train_keypoints_3d.at<double>(i, 0), train_keypoints_3d.at<double>(i, 1), train_keypoints_3d.at<double>(i, 2));
+    Eigen::Vector3f vec(train_keypoints_3d.at<float>(i, 0), train_keypoints_3d.at<float>(i, 1), train_keypoints_3d.at<float>(i, 2));
     train_3d_eigen_points.push_back(vec);    
+  }
+  */
+
+  // Print out the points
+  cout << "Query 3d Eigen: " << endl;
+  for(auto point: query_3d_eigen_points) {
+    cout << point << endl << endl;
+  }
+  cout << "Train 3d Eigen: " << endl;
+  for(auto point: train_3d_eigen_points) {
+    cout << point << endl << endl;
   }
 
   KeypointFrame query_keypoint_frame, train_keypoint_frame;
-  Eigen::Isometry3f transformation;
+  Eigen::Isometry3f transformation = Eigen::Isometry3f::Identity();
 
-  //std::vector<Eigen::Vector3f> points;
   query_keypoint_frame.rgb_image = img_color_1;
   query_keypoint_frame.depth_image = img_depth_1;
   query_keypoint_frame.keypoints = keypoints_1;
@@ -264,17 +316,16 @@ int main() {
   train_keypoint_frame.descriptors = descriptors_2;
   train_keypoint_frame.points = train_3d_eigen_points;
 
-  bool success = GetRansacTransformation(query_keypoint_frame, train_keypoint_frame, filtered_matches, &transformation);
+  bool success = GetRansacTransformation(query_keypoint_frame, train_keypoint_frame, depth_filtered_matches, &transformation);
   cout << "RansacTransformation success: " << success << endl;
   cout << "Transformation rotation: " << transformation.rotation() << endl;
+  cout << "Transformation rotation matrix: " << transformation.rotation().matrix() << endl;
   cout << "Transformation translation: " << transformation.translation() << endl;
 
   // TODO: Estimate the affine 3d transform between images using matching keypoints
   /*
   std::vector<uchar> inliers;
   cv::Mat aff(3,4,CV_64F);
-  int ret = cv::estimateAffine3D(query_keypoints_3d, train_keypoints_3d, aff, inliers);
-  int ret = cv::estimateAffine3D(query_keypoints_3d, train_keypoints_3d, aff, inliers);
   std::cout << "Transformation: " << endl << aff << std::endl;
 
   // This is necesssary to calculate the inverse of the affine transformation
@@ -290,31 +341,27 @@ int main() {
   rgbd::depthTo3d(img_depth_1, camera_matrix, depth_1_cloud);
   rgbd::depthTo3d(img_depth_2, camera_matrix, depth_2_cloud);
 
-/*
   for(int i = 0; i < depth_2_cloud.rows; i++) {
     for(int j = 0; j < depth_2_cloud.cols; j++) {
       // Get the original Vec3d (3D point) from the Mat
-      Vec3d orig_31 = depth_2_cloud.at<Vec3d>(i, j);
-
-      // Create a 4x1 Mat from the original 3D point + 1 homogenous point
-      Mat mat41 = Mat(4, 1, CV_64F);
-      mat41.at<double>(0,0) = orig_31[0];
-      mat41.at<double>(0,1) = orig_31[1];
-      mat41.at<double>(0,2) = orig_31[2];
-      mat41.at<double>(0,3) = 1.0;
+      Vec3f orig_31 = depth_2_cloud.at<Vec3f>(i, j);
+      Eigen::Vector3f eigen_vec3;
+      eigen_vec3(0) = orig_31[0];
+      eigen_vec3(1) = orig_31[1];
+      eigen_vec3(2) = orig_31[2];
 
       // Transform the original point by the affine transform
       // 4x1 = 4x4 * 4x1
-      Mat result41 = orig_31 * transformation;
+      Eigen::Vector3f result41 = transformation.inverse() * eigen_vec3;
+      //cout << "result41: " << result41 << endl;
 
       // Convert the 4x1 Mat to a Vec3d and save it in the original mat
-      Vec3d result_31(result41.at<double>(0,0), result41.at<double>(0,1), result41.at<double>(0,2));
-      depth_2_cloud.at<Vec3d>(i, j) = result_31;
 
+      Vec3f result_31(result41(0,0), result41(1,0), result41(2,0));
+      depth_2_cloud.at<Vec3f>(i, j) = result_31;
       //cout << "Before: " << endl << orig_31 << endl << "After:" << endl << result_31 << endl;
     }
   }
-*/
   
   Mat depth_combined, color_combined;
   hconcat(depth_1_cloud, depth_2_cloud, depth_combined);
