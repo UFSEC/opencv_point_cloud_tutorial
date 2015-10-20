@@ -53,7 +53,7 @@ int main() {
   Mat img_color_2 = imread(color_2_path, CV_LOAD_IMAGE_COLOR);
   Mat img_depth_2 = imread(depth_2_path, CV_LOAD_IMAGE_ANYDEPTH);
 
-  // TODO: Get the feature points
+  // Get the feature points
   Ptr<ORB> orb = ORB::create();
   vector<KeyPoint> keypoints_1, keypoints_2;
   Mat descriptors_1, descriptors_2;
@@ -66,6 +66,13 @@ int main() {
   Mat img_keypoints1, img_keypoints2;
   drawKeypoints(img_color_1, keypoints_1, img_keypoints1, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
   drawKeypoints(img_color_2, keypoints_2, img_keypoints2, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+
+
+
+
+
+
+
 
   // Match up the Feature Points between images
   BFMatcher matcher(NORM_L2);
@@ -97,21 +104,59 @@ int main() {
   rgbd::depthTo3dSparse(img_depth_1, camera_matrix, query_matched_keypoints, query_keypoints_3d);
   rgbd::depthTo3dSparse(img_depth_2, camera_matrix, train_matched_keypoints, train_keypoints_3d);
 
+  Mat filtered_query_3d, filtered_train_3d;
+
+  cout << "query_keypoints_3d rows: " << query_keypoints_3d.rows << endl;
+  cout << "train_keypoints_3d rows: " << train_keypoints_3d.rows << endl;
+  for(int i = 0; i < query_keypoints_3d.rows; i++) {
+    Vec3d query_vec = query_keypoints_3d.at<Vec3d>(i, 0);
+    Vec3d train_vec = train_keypoints_3d.at<Vec3d>(i, 0);
+    cout << "Query Vec: " << query_vec << ", Train Vec: " << train_vec << endl;
+
+    double max_size = 1000000000000;
+    double min_size = 1;
+    if(query_vec[0] > max_size || query_vec[0] < min_size ||
+       query_vec[1] > max_size || query_vec[1] < min_size ||
+       query_vec[2] > max_size || query_vec[2] < min_size ||
+       train_vec[0] > max_size || train_vec[0] < min_size ||
+       train_vec[1] > max_size || train_vec[1] < min_size ||
+       train_vec[2] > max_size || train_vec[2] < min_size) continue;
+    cout << "" << endl;
+
+    filtered_query_3d.push_back(query_vec);
+    filtered_train_3d.push_back(train_vec);
+  }
+
+  cout << endl << endl << "Filtered!!!!" << endl << endl;
+
+  cout << "filtered_query_3d rows: " << filtered_query_3d.rows << endl;
+  cout << "filtered_train_3d rows: " << filtered_train_3d.rows << endl;
+  for(int i = 0; i < filtered_query_3d.rows; i++) {
+    Vec3d query_vec = filtered_query_3d.at<Vec3d>(i, 0);
+    Vec3d train_vec = filtered_train_3d.at<Vec3d>(i, 0);
+    cout << "Query Vec: " << query_vec << ", Train Vec: " << train_vec << endl;
+  }
+
+
+
+
+
+
+
+
   // TODO: Estimate the affine 3d transform between images using matching keypoints
   std::vector<uchar> inliers;
   cv::Mat aff(3,4,CV_64F);
-  int ret = cv::estimateAffine3D(query_keypoints_3d, train_keypoints_3d, aff, inliers);
+  int ret = cv::estimateAffine3D(filtered_query_3d, filtered_train_3d, aff, inliers);
   std::cout << "Transformation: " << endl << aff << std::endl;
 
   // This is necesssary to calculate the inverse of the affine transformation
-/*
   Mat homogenous_row = Mat(1, 4, CV_64F);
   homogenous_row.at<double>(0, 0) = 0;
   homogenous_row.at<double>(0, 1) = 0;
   homogenous_row.at<double>(0, 2) = 0;
   homogenous_row.at<double>(0, 3) = 1;
   aff.push_back(homogenous_row);
-*/
 
   Mat depth_1_cloud, depth_2_cloud;
   rgbd::depthTo3d(img_depth_1, camera_matrix, depth_1_cloud);
