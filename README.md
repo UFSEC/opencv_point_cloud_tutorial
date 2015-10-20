@@ -4,10 +4,12 @@
 
 ### Pro Mode ###
 Use Docker to handle all of your dependencies :)
-TODO: Make a Docker image that does all this stuff for you.
+* Install docker: `sudo apt-get install docker`
+* Build the docker container: `docker build -t sec_pc_tutorial .`
+* Run the Docker container: `./runDocker sec_pc_tutorial`
 
 ### Less Pro Mode ###
-Install all these dependencies yourself
+Install all these dependencies yourself (already out of date :/)
 
 #### Pre-OpenCV Dependencies ####
 OpenCV 3.0 with Python bindings has some required dependencies. You can install them with this these commands.
@@ -32,3 +34,17 @@ Build from source (this will take a while)
 Add it to your PATH
 `export LD_LIBRARY_PATH=<path/to/opencv/install/dir>/lib:$LD_LIBRARY_PATH`
 `export PATH=<path/to/opencv/install/div>/bin:$PATH`
+
+## How to Run these Programs ##
+
+* Programs 1-3: `python PROGRAM_NAME`
+
+* Programs 4-5:
+```
+mkdir build install
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=../install ..
+make && make install
+cd ../install/bin/
+./PROGRAM_NAME
+```
