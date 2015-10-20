@@ -54,5 +54,8 @@ RUN sudo apt-get install -y feh \
     cmake-curses-gui \
     tmux
 
+RUN wget http://bitbucket.org/eigen/eigen/get/3.2.6.tar.gz && tar -xvf 3.2.6.tar.gz
+RUN cd eigen* && mkdir build && cd build && cmake -DCMAKE_INSTALL_PREFIX=/usr/local .. && sudo make && sudo make install
+
 RUN git clone https://github.com/UFSEC/opencv_point_cloud_tutorial.git
 CMD /bin/bash
