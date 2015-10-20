@@ -26,15 +26,21 @@ Matx33d getCameraMatrix() {
                   0.0, fy, cy,
                   0.0, 0.0, 1.0);
 }
+  
+// Make sure no matches have 0 depth
+vector<DMatch> filter_matches_by_depth(vector<DMatch> matches, vector<KeyPoint> keypoints_1, vector<KeyPoint> keypoints_2, Mat depth_1, Mat depth_2) {
+  vector<DMatch> depth_filtered_matches;
+  for(auto match: matches) {
+    Point query_keypoint = keypoints_1[match.queryIdx].pt;
+    Point train_keypoint = keypoints_2[match.trainIdx].pt;
 
-// Filter the matches by an arbitrary distance
-vector<DMatch> filter_matches(vector<DMatch> matches, int max_distance) {
-  vector<DMatch> filtered_matches;
-  for(auto match : matches) {
-    //cout << "Distance: " << match.distance << endl;
-    if(match.distance < max_distance) filtered_matches.push_back(match);
+    double depth_1_value = static_cast<double>(depth_1.at<float>(query_keypoint.y, query_keypoint.x));
+    double depth_2_value = static_cast<double>(depth_2.at<float>(train_keypoint.y, train_keypoint.x));
+    if(depth_1_value < 1e-6 || depth_2_value < 1e-6) continue;
+    //cout << "After, Depth 1: " << depth_1_value << ", Depth 2: " << depth_2_value << endl;
+    depth_filtered_matches.push_back(match);
   }
-  return filtered_matches;
+  return depth_filtered_matches;
 }
 
 struct KeypointFrame {
@@ -191,28 +197,13 @@ bool GetRansacTransformation(const KeypointFrame& from_frame,
   return true;
 }
 
-int main() {
-  // Create a viz window
-  viz::Viz3d viz("Fun Visualization :)");
-
-  string color_1_path = "../../../images/color.png";
-  string depth_1_path = "../../../images/depth.png";
-  string color_2_path = "../../../images/color_2.png";
-  string depth_2_path = "../../../images/depth_2.png";
+Mat LoadNextImage(const Mat& prev_depth, const Mat& prev_color, const Mat& current_depth, const Mat& current_color) {
+  Mat img_color_1 = prev_color;
+  Mat img_depth_1 = prev_depth;
+  Mat img_color_2 = current_color;
+  Mat img_depth_2 = current_depth;
 
   Matx33d camera_matrix = getCameraMatrix();
-
-  // Read in the images
-  Mat img_color_1 = imread(color_1_path, CV_LOAD_IMAGE_COLOR);
-  Mat img_depth_1_unscaled = imread(depth_1_path, CV_LOAD_IMAGE_ANYDEPTH);
-  Mat img_color_2 = imread(color_2_path, CV_LOAD_IMAGE_COLOR);
-  Mat img_depth_2_unscaled = imread(depth_2_path, CV_LOAD_IMAGE_ANYDEPTH);
-
-  Mat img_depth_1, img_depth_2, img_depth_1_float, img_depth_2_float;
-  img_depth_1_unscaled.convertTo(img_depth_1_float, CV_32F);
-  img_depth_2_unscaled.convertTo(img_depth_2_float, CV_32F);
-  img_depth_1_float.convertTo(img_depth_1, CV_32F, 1.0/10000.0);
-  img_depth_2_float.convertTo(img_depth_2, CV_32F, 1.0/10000.0);
 
   // Get the feature points
   Ptr<Feature2D> sift = xfeatures2d::SIFT::create(300);
@@ -241,21 +232,7 @@ int main() {
   }
 
   const int max_match_distance = 10000;
-  vector<DMatch> filtered_matches = filter_matches(good_matches, max_match_distance);
-  //vector<DMatch> depth_filtered_matches = filter_matches_by_depth(matches, keypoints_1, keypoints_2, img_depth_1, img_depth_2, max_match_distance);
-  
-  vector<DMatch> depth_filtered_matches;
-  for(auto match: filtered_matches) {
-    Point query_keypoint = keypoints_1[match.queryIdx].pt;
-    Point train_keypoint = keypoints_2[match.trainIdx].pt;
-
-    double depth_1_value = static_cast<double>(img_depth_1.at<float>(query_keypoint.y, query_keypoint.x));
-    double depth_2_value = static_cast<double>(img_depth_2.at<float>(train_keypoint.y, train_keypoint.x));
-    if(depth_1_value < 1e-6 || depth_2_value < 1e-6) continue;
-    cout << "After, Depth 1: " << depth_1_value << ", Depth 2: " << depth_2_value << endl;
-
-    depth_filtered_matches.push_back(match);
-  }
+  vector<DMatch> depth_filtered_matches = filter_matches_by_depth(good_matches, keypoints_1, keypoints_2, img_depth_1, img_depth_2);
   
   Mat img_matches;
   drawMatches(img_color_1, keypoints_1, img_color_2, keypoints_2, depth_filtered_matches, img_matches);
@@ -269,31 +246,6 @@ int main() {
   vector<Eigen::Vector3f> train_3d_eigen_points;
   ReprojectKeypoints(keypoints_1, img_depth_1, camera_matrix, &query_3d_eigen_points);
   ReprojectKeypoints(keypoints_2, img_depth_2, camera_matrix, &train_3d_eigen_points);
-
-  //rgbd::depthTo3dSparse(img_depth_1, camera_matrix, keypoints_1, query_keypoints_3d);
-  //rgbd::depthTo3dSparse(img_depth_2, camera_matrix, keypoints_2, train_keypoints_3d);
-
-  /*
-  cout << endl << endl << "Filtered!!!!" << endl << endl;
-
-  cout << "filtered_query_3d rows: " << filtered_query_3d.rows << endl;
-  cout << "filtered_train_3d rows: " << filtered_train_3d.rows << endl;
-  for(int i = 0; i < filtered_query_3d.rows; i++) {
-    Vec3d query_vec = filtered_query_3d.at<Vec3d>(i, 0);
-    Vec3d train_vec = filtered_train_3d.at<Vec3d>(i, 0);
-    cout << "Query Vec: " << query_vec << ", Train Vec: " << train_vec << endl;
-  }
-
-  for(int i = 0; i < query_keypoints_3d.rows; i++) {
-    Eigen::Vector3f vec(query_keypoints_3d.at<float>(i, 0), query_keypoints_3d.at<float>(i, 1), query_keypoints_3d.at<float>(i, 2));
-    query_3d_eigen_points.push_back(vec);    
-  }
-
-  for(int i = 0; i < train_keypoints_3d.rows; i++) {
-    Eigen::Vector3f vec(train_keypoints_3d.at<float>(i, 0), train_keypoints_3d.at<float>(i, 1), train_keypoints_3d.at<float>(i, 2));
-    train_3d_eigen_points.push_back(vec);    
-  }
-  */
 
   // Print out the points
   cout << "Query 3d Eigen: " << endl;
@@ -326,21 +278,6 @@ int main() {
   cout << "Transformation rotation matrix: " << transformation.rotation().matrix() << endl;
   cout << "Transformation translation: " << transformation.translation() << endl;
 
-  // TODO: Estimate the affine 3d transform between images using matching keypoints
-  /*
-  std::vector<uchar> inliers;
-  cv::Mat aff(3,4,CV_64F);
-  std::cout << "Transformation: " << endl << aff << std::endl;
-
-  // This is necesssary to calculate the inverse of the affine transformation
-  Mat homogenous_row = Mat(1, 4, CV_64F);
-  homogenous_row.at<double>(0, 0) = 0;
-  homogenous_row.at<double>(0, 1) = 0;
-  homogenous_row.at<double>(0, 2) = 0;
-  homogenous_row.at<double>(0, 3) = 1;
-  aff.push_back(homogenous_row);
-  */
-
   Mat depth_1_cloud, depth_2_cloud;
   rgbd::depthTo3d(img_depth_1, camera_matrix, depth_1_cloud);
   rgbd::depthTo3d(img_depth_2, camera_matrix, depth_2_cloud);
@@ -366,12 +303,62 @@ int main() {
       //cout << "Before: " << endl << orig_31 << endl << "After:" << endl << result_31 << endl;
     }
   }
-  
-  Mat depth_combined, color_combined;
-  hconcat(depth_1_cloud, depth_2_cloud, depth_combined);
-  hconcat(img_color_1, img_color_2, color_combined);
 
+  return depth_2_cloud;
+}
+
+
+int main() {
+  // Create a viz window
+  viz::Viz3d viz("Fun Visualization :)");
+  Matx33d camera_matrix = getCameraMatrix();
+
+  string color_1_path = "../../../images/color.png";
+  string depth_1_path = "../../../images/depth.png";
+  string color_2_path = "../../../images/color_2.png";
+  string depth_2_path = "../../../images/depth_2.png";
+  string color_3_path = "../../../images/color_3.png";
+  string depth_3_path = "../../../images/depth_3.png";
+
+  // Read in the images
+  Mat img_color_1 = imread(color_1_path, CV_LOAD_IMAGE_COLOR);
+  Mat img_depth_1_unscaled = imread(depth_1_path, CV_LOAD_IMAGE_ANYDEPTH);
+  Mat img_color_2 = imread(color_2_path, CV_LOAD_IMAGE_COLOR);
+  Mat img_depth_2_unscaled = imread(depth_2_path, CV_LOAD_IMAGE_ANYDEPTH);
+  Mat img_color_3 = imread(color_3_path, CV_LOAD_IMAGE_COLOR);
+  Mat img_depth_3_unscaled = imread(depth_3_path, CV_LOAD_IMAGE_ANYDEPTH);
+
+  Mat img_depth_1, img_depth_2, img_depth_3, img_depth_1_float, img_depth_2_float, img_depth_3_float;
+  img_depth_1_unscaled.convertTo(img_depth_1_float, CV_32F);
+  img_depth_2_unscaled.convertTo(img_depth_2_float, CV_32F);
+  img_depth_3_unscaled.convertTo(img_depth_3_float, CV_32F);
+
+  img_depth_1_float.convertTo(img_depth_1, CV_32F, 1.0/10000.0);
+  img_depth_2_float.convertTo(img_depth_2, CV_32F, 1.0/10000.0);
+  img_depth_3_float.convertTo(img_depth_3, CV_32F, 1.0/10000.0);
+
+  Mat depth_1_cloud;
+  rgbd::depthTo3d(img_depth_1, camera_matrix, depth_1_cloud);
+
+  viz.showWidget("cloud", viz::WCloud(depth_1_cloud, img_color_1));
+  viz.spinOnce();
+
+  Mat depth_combined, color_combined;
+  Mat new_depth_cloud = LoadNextImage(img_depth_1, img_color_1, img_depth_2, img_color_2);
+  hconcat(depth_1_cloud, new_depth_cloud, depth_combined);
+  hconcat(img_color_1, img_color_2, color_combined);
   viz.showWidget("cloud", viz::WCloud(depth_combined, color_combined));
   viz.spin();
+
+  /*
+  Mat depth_combined2, color_combined2;
+  Mat new_depth_cloud2 = LoadNextImage(img_depth_2, img_color_2, img_depth_3, img_color_3);
+  hconcat(depth_combined, new_depth_cloud2, depth_combined2);
+  hconcat(color_combined, img_color_3, color_combined2);
+  viz.showWidget("cloud", viz::WCloud(depth_combined2, color_combined2));
+  viz.spin();
+  */
+
+
   return 0;
 }
