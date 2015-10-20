@@ -5,6 +5,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/rgbd.hpp>
+#include <opencv2/xfeatures2d.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -214,30 +215,33 @@ int main() {
   img_depth_2_float.convertTo(img_depth_2, CV_32F, 1.0/10000.0);
 
   // Get the feature points
-  Ptr<ORB> orb = ORB::create();
+  Ptr<Feature2D> sift = xfeatures2d::SIFT::create(300);
   vector<KeyPoint> keypoints_1, keypoints_2;
   Mat descriptors_1, descriptors_2;
 
-  orb->detect(img_color_1, keypoints_1);
-  orb->detect(img_color_2, keypoints_2);
-  orb->compute(img_color_1, keypoints_1, descriptors_1);
-  orb->compute(img_color_2, keypoints_2, descriptors_2);
+  sift->detect(img_color_1, keypoints_1);
+  sift->detect(img_color_2, keypoints_2);
+  sift->compute(img_color_1, keypoints_1, descriptors_1);
+  sift->compute(img_color_2, keypoints_2, descriptors_2);
 
   Mat img_keypoints1, img_keypoints2;
   drawKeypoints(img_color_1, keypoints_1, img_keypoints1, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
   drawKeypoints(img_color_2, keypoints_2, img_keypoints2, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
 
-
-
-
-
   // Match up the Feature Points between images
-  BFMatcher matcher(NORM_L2);
-  std::vector<DMatch> matches;
-  matcher.match(descriptors_1, descriptors_2, matches);
+  BFMatcher matcher;
+  std::vector<std::vector<cv::DMatch>> matches;
+  matcher.knnMatch(descriptors_1, descriptors_2, matches, 2);  // Find two nearest matches
+  vector<cv::DMatch> good_matches;
+  for (int i = 0; i < matches.size(); ++i) {
+    const float ratio = 0.6; // As in Lowe's paper; can be tuned
+    if (matches[i][0].distance < ratio * matches[i][1].distance) {
+      good_matches.push_back(matches[i][0]);
+    }
+  }
 
   const int max_match_distance = 10000;
-  vector<DMatch> filtered_matches = filter_matches(matches, max_match_distance);
+  vector<DMatch> filtered_matches = filter_matches(good_matches, max_match_distance);
   //vector<DMatch> depth_filtered_matches = filter_matches_by_depth(matches, keypoints_1, keypoints_2, img_depth_1, img_depth_2, max_match_distance);
   
   vector<DMatch> depth_filtered_matches;
